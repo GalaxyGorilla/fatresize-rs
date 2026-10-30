@@ -18,6 +18,7 @@ Compatibility options:
   -q, --quiet            Suppress non-error output
   -v, --verbose          Display additional diagnostic output
   -h, --help             Display this help
+  -V, --version          Display version information
 
 Enhanced options:
       --dry-run          Plan changes without writing them
@@ -38,6 +39,7 @@ pub struct Config {
     pub quiet: bool,
     pub verbose: bool,
     pub help: bool,
+    pub version: bool,
     pub dry_run: bool,
     pub check: bool,
     pub backup: Option<PathBuf>,
@@ -127,6 +129,7 @@ where
                 "--quiet" => set_switch(&mut config.quiet, inline_value, "--quiet")?,
                 "--verbose" => set_switch(&mut config.verbose, inline_value, "--verbose")?,
                 "--help" => set_switch(&mut config.help, inline_value, "--help")?,
+                "--version" => set_switch(&mut config.version, inline_value, "--version")?,
                 "--dry-run" => set_switch(&mut config.dry_run, inline_value, "--dry-run")?,
                 "--check" => set_switch(&mut config.check, inline_value, "--check")?,
                 "--json" => set_switch(&mut config.json, inline_value, "--json")?,
@@ -173,6 +176,7 @@ fn parse_short_option(
             'q' => reject_and_set(&mut config.quiet, "--quiet")?,
             'v' => reject_and_set(&mut config.verbose, "--verbose")?,
             'h' => reject_and_set(&mut config.help, "--help")?,
+            'V' => reject_and_set(&mut config.version, "--version")?,
             's' | 'n' => {
                 let name = if option == 's' {
                     "--size"
@@ -283,7 +287,7 @@ fn reject_duplicate(is_set: bool, option: &'static str) -> Result<(), CliError> 
 }
 
 fn validate(config: Config) -> Result<Config, CliError> {
-    if config.help {
+    if config.help || config.version {
         return Ok(config);
     }
     if config.device.is_none() {
@@ -381,8 +385,10 @@ mod tests {
     }
 
     #[test]
-    fn help_does_not_require_a_device() {
+    fn help_and_version_do_not_require_a_device() {
         assert!(parse_from(["--help"]).unwrap().help);
+        assert!(parse_from(["-V"]).unwrap().version);
+        assert!(parse_from(["--version"]).unwrap().version);
     }
 
     #[test]

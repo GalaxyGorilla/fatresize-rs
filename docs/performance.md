@@ -4,11 +4,12 @@ These are black-box measurements; no source from the original implementation
 was inspected. The reproducible Rust harness is
 [`benchmarks/compare.rs`](../benchmarks/compare.rs).
 
-## Environment
+## Benchmark conditions
+
+All timings below are machine-specific observations from one benchmark run,
+not portable performance guarantees.
 
 - Date: 2026-10-30
-- Host: WSL2, Linux 6.6
-- CPU: Intel Core Ultra 7 265U
 - Rust build: `cargo build --release`
 - Original tool: Ubuntu `fatresize 1.1.0-2build2` (`20240401`)
 - Measurements include process startup and suppress command output.
@@ -32,7 +33,7 @@ Median wall-clock time:
 The Rust shrink result includes creating, checksumming, syncing, and updating a
 recovery record that contains the discarded tail, performing the resize, and
 post-write verification. The original executable terminated with signal 11 on
-all regular-image shrink attempts in this environment. An attempted loop-device
+all regular-image shrink attempts during these measurements. An attempted loop-device
 run terminated with a buffer-overflow abort, so reporting a comparative resize
 time would be misleading.
 

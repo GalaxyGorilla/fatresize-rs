@@ -23,6 +23,10 @@ fn run() -> Result<bool, Error> {
         print!("{}", cli::HELP);
         return Ok(true);
     }
+    if config.version {
+        println!("fatresize {}", env!("CARGO_PKG_VERSION"));
+        return Ok(true);
+    }
 
     if config.dry_run
         && let Some(size) = config.size

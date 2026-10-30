@@ -16,8 +16,10 @@ jobs:
         with:
           components: clippy,rustfmt
       - run: cargo fmt --check
-      - run: cargo test --all-targets
+      - run: cargo test --all-targets --locked
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo build --release --locked
+      - run: cargo test --release --all-targets --locked
 
   dependencies:
     runs-on: ubuntu-latest

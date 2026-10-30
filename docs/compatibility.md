@@ -64,19 +64,19 @@ combined to print a report and return failure when issues exist.
 - FAT mirrors, FAT32 active-FAT flags, FSInfo, backup boot sectors, nested
   directories, valid VFAT long names, and multi-cluster files/directories are
   understood.
-- MBR support is limited to four primary entries. GPT requires matching valid
-  primary and backup headers/entry arrays and valid CRC32 values.
+- MBR supports four primary entries. GPT requires matching valid primary and
+  backup headers/entry arrays and valid CRC32 values.
 - Partition sizes must remain sector-aligned and within usable, non-overlapping
   space.
 - Writes are Linux-only. FAT images and raw devices require an exclusive
   advisory lock; raw block devices and their mounted child partitions are
   rejected.
 
-## Explicit limitations
+## Scope boundaries
 
 No FAT12, exFAT, FAT repair, FAT type conversion, MBR extended/logical
 partitions, online resizing, or non-Linux writes. Bad-cluster markers make a
 volume ineligible for resize. Locks are advisory. Loop-backed mounts are not
 reliably inferred from a regular image path. Recovery records cover filesystem
-sectors overwritten or discarded by the plan, not MBR/GPT sectors. JSON has no
-versioned schema guarantee before 1.0.
+sectors overwritten or discarded by the plan, not MBR/GPT sectors. Documented
+JSON fields remain compatible; consumers should accept additional fields.

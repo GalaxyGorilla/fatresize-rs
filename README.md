@@ -1,12 +1,14 @@
 # fatresize
 
-A clean-room Rust implementation of FAT filesystem resizing.
+A fast, exact, and recoverable FAT16/FAT32 filesystem resizer written in Rust
+and licensed under MIT OR Apache-2.0.
 
-## Status
+## Capabilities
 
-The tool can inspect, check, plan, grow, shrink, back up, and restore supported
-FAT16/FAT32 volumes. It is pre-1.0 software: use a separate verified backup and
-read the limitations below before allowing writes.
+`fatresize` inspects, validates, plans, grows, shrinks, backs up, and restores
+FAT16/FAT32 volumes. It rejects inexact targets and inconsistent source
+filesystems before writing. Keep a separate verified backup when modifying
+storage.
 
 ## Command line
 
@@ -30,8 +32,9 @@ FAT sector and container block size are rejected instead of rounded.
 
 ## Performance
 
-Representative median wall-clock results on WSL2 and an Intel Core Ultra 7
-265U, using release builds and 100 process-level runs:
+These machine-specific median wall-clock results come from one benchmark run
+using release builds and 100 process-level runs. They are not portable
+performance guarantees:
 
 | Operation | Rust | Original fatresize | Speedup |
 | --- | ---: | ---: | ---: |
@@ -42,10 +45,10 @@ Representative median wall-clock results on WSL2 and an Intel Core Ultra 7
 
 The fragmented fixture contains 84 files and 104 physical extents. A complete
 Rust `--check` of that image takes 102.67 ms; the original has no equivalent
-full-validation mode. Original resize attempts crashed in this environment, so
-no misleading resize speedup is claimed. Methodology, recovery-overhead
-results, fixture generation, and the Rust benchmark harness are documented in
-[docs/performance.md](docs/performance.md).
+full-validation mode. Original resize attempts crashed during these
+measurements, so no misleading resize speedup is claimed. Methodology,
+recovery-overhead results, fixture generation, and the Rust benchmark harness
+are documented in [docs/performance.md](docs/performance.md).
 
 ## Supported matrix
 
@@ -113,9 +116,16 @@ performance measurements are in [docs/performance.md](docs/performance.md).
 Install a current Rust toolchain, then run:
 
 ```sh
-cargo build
-cargo test
+cargo build --release --locked
+cargo test --release --all-targets --locked
 cargo clippy --all-targets -- -D warnings
+```
+
+The production binary is `target/release/fatresize`. To install it into
+Cargo's binary directory:
+
+```sh
+cargo install --path . --locked
 ```
 
 ## License
