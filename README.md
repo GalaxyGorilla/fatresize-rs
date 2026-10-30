@@ -1,0 +1,124 @@
+# fatresize
+
+A clean-room Rust implementation of FAT filesystem resizing.
+
+## Status
+
+The tool can inspect, check, plan, grow, shrink, back up, and restore supported
+FAT16/FAT32 volumes. It is pre-1.0 software: use a separate verified backup and
+read the limitations below before allowing writes.
+
+## Command line
+
+```text
+fatresize [OPTIONS] DEVICE
+```
+
+Compatibility options are `--size`, `--info`, `--force-yes`, `--partition`,
+`--progress`, `--quiet`, `--verbose`, and `--help`. Enhanced options are
+`--dry-run`, `--check`, `--backup`, `--restore`, and `--json`. Run
+`fatresize --help` for value syntax and short aliases.
+
+Sizes without a suffix are bytes. `B`, `K`, `M`, `G`, `T`, and `P` are
+accepted case-insensitively; `KB` and `KiB` forms (and their larger
+counterparts) are also accepted. All units use powers of 1024. Exact decimal
+fractions such as `1.5GiB` are supported, but sub-byte results are rejected.
+`max` selects the safe capacity of the image or selected partition.
+Explicit target sizes are exact: the resulting BPB and image or partition
+length equal the requested byte count. Targets that are not aligned to both the
+FAT sector and container block size are rejected instead of rounded.
+
+## Performance
+
+Representative median wall-clock results on WSL2 and an Intel Core Ultra 7
+265U, using release builds and 100 process-level runs:
+
+| Operation | Rust | Original fatresize | Speedup |
+| --- | ---: | ---: | ---: |
+| Startup/help | 0.91 ms | 3.74 ms | **4.1x** |
+| FAT16 64 MiB information | 1.50 ms | 4.94 ms | **3.3x** |
+| FAT32 256 MiB information | 5.29 ms | 10.92 ms | **2.1x** |
+| Fragmented FAT32 information | 3.87 ms | 10.05 ms | **2.6x** |
+
+The fragmented fixture contains 84 files and 104 physical extents. A complete
+Rust `--check` of that image takes 102.67 ms; the original has no equivalent
+full-validation mode. Original resize attempts crashed in this environment, so
+no misleading resize speedup is claimed. Methodology, recovery-overhead
+results, fixture generation, and the Rust benchmark harness are documented in
+[docs/performance.md](docs/performance.md).
+
+## Supported matrix
+
+| Area | Supported |
+| --- | --- |
+| Filesystems | FAT16 and FAT32, preserving the FAT type |
+| Containers | Raw volume images; MBR primary partitions 1-4; GPT partitions |
+| Operations | Read-only info/check/plan; grow/shrink; recovery backup/restore |
+| Sector sizes | FAT sectors 512/1024/2048/4096; Linux block logical sectors >=512, power of two |
+| Writable hosts | Linux only; runtime dependencies remain standard-library-only |
+
+FAT12, exFAT, FAT type conversion, MBR logical/extended partitions, encrypted
+or stacked-device discovery, and filesystem repair are not supported.
+
+## Safety model
+
+- Planning, `--info`, `--check`, and `--dry-run` open the target read-only.
+- Writes require a nonblocking Linux `flock(2)` exclusive advisory lock.
+- Raw block writes reject a mounted device or mounted child partition using
+  `/proc/self/mountinfo` and sysfs identities.
+- Resizing requires a fully consistent source, confines all I/O to the selected
+  volume, and rejects bad/reserved clusters, cross-links, malformed chains,
+  mismatched FAT mirrors, and partition-boundary crossings.
+- A checksummed recovery record is written to a temporary file, synced,
+  atomically renamed, and its parent directory synced before volume writes.
+- Growth expands the container before filesystem writes. Shrink commits the
+  smaller container only after rereading and validating the resized filesystem.
+- Metadata stages are synced; GPT updates write and sync the backup copy before
+  the primary copy.
+
+Advisory locks do not stop non-cooperating programs. Mounted detection does not
+identify every loop or device-mapper relationship for a regular image. A power
+loss can still require recovery. Partition-table sectors are not stored in the
+filesystem recovery record, so interruption during an MBR/GPT table update may
+require external partition-table repair. Always keep an independent backup.
+
+## Recovery
+
+Choose a recovery file on different reliable storage for raw-device work:
+
+```sh
+fatresize --size 8GiB --backup /safe/disk.fatrsz --partition 1 /dev/sdX
+fatresize --restore /safe/disk.fatrsz --partition 1 /dev/sdX
+```
+
+Do not delete the record until the resized filesystem and partition table have
+been independently checked. Restoring a record marked complete requires
+`--force-yes`; this prevents accidental rollback after success. Recovery is
+repeatable and restores non-boot sectors durably before committing the primary
+boot sector.
+
+## Clean-room policy
+
+This implementation must be developed from public specifications,
+documentation, and independently observed behavior. Do not copy, translate, or
+adapt source code from GPL-licensed implementations.
+
+Evidence and public references are recorded in
+[docs/clean-room.md](docs/clean-room.md). Detailed behavior and limitations are
+in [docs/compatibility.md](docs/compatibility.md). Reproducible black-box
+performance measurements are in [docs/performance.md](docs/performance.md).
+
+## Building
+
+Install a current Rust toolchain, then run:
+
+```sh
+cargo build
+cargo test
+cargo clippy --all-targets -- -D warnings
+```
+
+## License
+
+Licensed under either the Apache License, Version 2.0 or the MIT License, at
+your option.
