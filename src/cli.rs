@@ -26,6 +26,15 @@ Enhanced options:
       --backup FILE      Save resize metadata to FILE
       --restore FILE     Restore resize metadata from FILE
       --json             Emit machine-readable output
+
+Start safely:
+  fatresize --info DEVICE
+  fatresize --check DEVICE
+  fatresize --dry-run --size 8GiB DEVICE
+
+For a partition, pass the whole disk with --partition NUM so the filesystem
+and partition-table entry are resized together. Writes prompt unless
+--force-yes is present. Raw block devices require an explicit --backup FILE.
 ";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

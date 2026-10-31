@@ -72,6 +72,19 @@ combined to print a report and return failure when issues exist.
   advisory lock; raw block devices and their mounted child partitions are
   rejected.
 
+## Recovery format
+
+Every resize writes a versioned, checksummed recovery record before modifying
+the volume. The record binds the source FAT identity and geometry and stores
+every filesystem sector that the plan may overwrite or discard. Its phase is
+updated durably as data movement and metadata commit progress.
+
+An interrupted operation can be restored with `--restore FILE`. Restoring a
+record already marked complete requires `--force-yes`, which prevents an
+accidental rollback of a successful resize. Recovery records do not contain
+MBR/GPT sectors; keep an independent partition-table backup when resizing a
+partition.
+
 ## Scope boundaries
 
 No FAT12, exFAT, FAT repair, FAT type conversion, MBR extended/logical

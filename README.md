@@ -1,14 +1,64 @@
 # fatresize
 
-A fast, exact, and recoverable FAT16/FAT32 filesystem resizer written in Rust
-and licensed under MIT OR Apache-2.0.
+A safe, exact, and recoverable FAT16/FAT32 filesystem resizer written in Rust.
+It can resize a filesystem stored directly in an image or inside an MBR/GPT
+partition, while keeping the FAT type and file contents intact.
 
-## Capabilities
+**Start here:** try the [disposable-image walkthrough](#safe-first-run), then
+read the [real-device checklist](#before-resizing-real-storage). Use
+`fatresize --info DEVICE` when you only want to inspect a volume.
+
+## What it does
 
 `fatresize` inspects, validates, plans, grows, shrinks, backs up, and restores
 FAT16/FAT32 volumes. It rejects inexact targets and inconsistent source
 filesystems before writing. Keep a separate verified backup when modifying
 storage.
+
+It deliberately does **not** repair damaged filesystems, convert FAT types, or
+support FAT12/exFAT. Use a filesystem checker before resizing if the source may
+already be damaged.
+
+## Safe first run
+
+This walkthrough touches only a disposable image. It needs `mkfs.fat`
+(`dosfstools` on most Linux distributions):
+
+```sh
+truncate -s 128MiB demo.img
+mkfs.fat -F 32 demo.img
+
+cargo run --release -- --info demo.img
+cargo run --release -- --dry-run --size 96MiB demo.img
+cargo run --release -- --force-yes --size 96MiB \
+  --backup demo.fatrsz demo.img
+cargo run --release -- --check demo.img
+```
+
+The dry run prints the exact plan without opening the image writable. The real
+resize creates `demo.fatrsz` first. Keep that recovery record until `--check`
+passes and you have independently verified the resized filesystem.
+
+## Common tasks
+
+```sh
+# Fast, read-only geometry and usage summary
+fatresize --info DEVICE
+
+# Full, read-only consistency check
+fatresize --check DEVICE
+
+# Preview an exact resize without writing
+fatresize --dry-run --size 8GiB DEVICE
+
+# Resize partition 1 and place recovery data on separate storage
+fatresize --force-yes --size 8GiB --partition 1 \
+  --backup /safe/disk.fatrsz /dev/sdX
+```
+
+For an image or block device containing only a FAT volume, pass that path
+directly. To resize a partition and its table entry together, pass the
+**whole-disk** path and `--partition NUMBER`, as in the final example.
 
 ## Command line
 
@@ -29,6 +79,16 @@ fractions such as `1.5GiB` are supported, but sub-byte results are rejected.
 Explicit target sizes are exact: the resulting BPB and image or partition
 length equal the requested byte count. Targets that are not aligned to both the
 FAT sector and container block size are rejected instead of rounded.
+
+## Before resizing real storage
+
+1. Keep a verified backup of the data; the recovery record protects metadata,
+   not every file.
+2. Unmount the filesystem and stop software that may access the device.
+3. Run `--check`, then run the intended resize once with `--dry-run`.
+4. Put `--backup` on different reliable storage.
+5. After resizing, run `--check` again and verify the filesystem independently.
+6. Keep the recovery record until the result is confirmed.
 
 ## Performance
 
@@ -110,6 +170,13 @@ Evidence and public references are recorded in
 [docs/clean-room.md](docs/clean-room.md). Detailed behavior and limitations are
 in [docs/compatibility.md](docs/compatibility.md). Reproducible black-box
 performance measurements are in [docs/performance.md](docs/performance.md).
+
+## Documentation
+
+- [Compatibility and deliberate limits](docs/compatibility.md)
+- [Recovery and format behavior](docs/compatibility.md#recovery-format)
+- [Performance methodology](docs/performance.md)
+- [Clean-room development policy](docs/clean-room.md)
 
 ## Building
 
