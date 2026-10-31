@@ -7,13 +7,13 @@ use std::path::Path;
 use crate::fat::FatType;
 
 const MAGIC: &[u8; 8] = b"FATRSZ\0\x1a";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 const STATUS_OFFSET: usize = MAGIC.len() + 2;
 const STATUS_SLOT_SIZE: usize = 16;
 const STATUS_SLOT_COUNT: usize = 2;
 const STATUS_END: usize = STATUS_OFFSET + STATUS_SLOT_SIZE * STATUS_SLOT_COUNT;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RecoveryPhase {
     Planned,
     DataMoving,
@@ -26,6 +26,7 @@ pub struct SourceIdentity {
     pub volume_id: u32,
     pub volume_bytes: u64,
     pub boot_checksum: u32,
+    pub identity_checksum: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +113,7 @@ impl RecoveryRecord {
         put_u32(&mut output, self.source.volume_id);
         put_u64(&mut output, self.source.volume_bytes);
         put_u32(&mut output, self.source.boot_checksum);
+        put_u32(&mut output, self.source.identity_checksum);
         output.push(match self.geometry.fat_type {
             FatType::Fat16 => 16,
             FatType::Fat32 => 32,
@@ -163,6 +165,7 @@ impl RecoveryRecord {
             volume_id: input.u32()?,
             volume_bytes: input.u64()?,
             boot_checksum: input.u32()?,
+            identity_checksum: input.u32()?,
         };
         let fat_type = match input.byte()? {
             16 => FatType::Fat16,
@@ -266,8 +269,14 @@ pub(crate) fn persist_phase(path: &Path, phase: RecoveryPhase) -> io::Result<()>
             "unsupported recovery record version",
         ));
     }
-    let (active, generation, _) = latest_status(&header)
+    let (active, generation, current) = latest_status(&header)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if phase <= current {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "recovery phase must advance monotonically",
+        ));
+    }
     let target = (active + 1) % STATUS_SLOT_COUNT;
     let next = generation
         .checked_add(1)
@@ -338,6 +347,25 @@ fn static_checksum(bytes: &[u8]) -> u32 {
 
 pub fn checksum(bytes: &[u8]) -> u32 {
     checksum_parts([bytes])
+}
+
+pub(crate) fn boot_identity_checksum(bytes: &[u8], fat_type: FatType) -> io::Result<u32> {
+    if bytes.len() < 512 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "boot sector is too short for identity",
+        ));
+    }
+    let extended = match fat_type {
+        FatType::Fat16 => 36..62,
+        FatType::Fat32 => 64..90,
+    };
+    Ok(checksum_parts([
+        &bytes[..11],
+        &bytes[21..22],
+        &bytes[extended],
+        &bytes[510..512],
+    ]))
 }
 
 fn checksum_parts<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> u32 {
@@ -425,6 +453,7 @@ mod tests {
                 volume_id: 7,
                 volume_bytes: 5_022 * 512,
                 boot_checksum: 9,
+                identity_checksum: 10,
             },
             geometry: SourceGeometry {
                 fat_type: FatType::Fat16,
@@ -450,7 +479,13 @@ mod tests {
         let encoded = record().serialize();
         assert_eq!(RecoveryRecord::deserialize(&encoded).unwrap(), record());
         assert_eq!(record().backed_up_sectors(), 3);
-        let mut corrupt = encoded;
+        for end in 0..encoded.len() {
+            assert!(
+                RecoveryRecord::deserialize(&encoded[..end]).is_err(),
+                "accepted record truncated to {end} bytes"
+            );
+        }
+        let mut corrupt = encoded.clone();
         corrupt[STATUS_END + 1] ^= 1;
         assert_eq!(
             RecoveryRecord::deserialize(&corrupt),
@@ -472,5 +507,33 @@ mod tests {
             RecoveryRecord::deserialize(&out_of_bounds.serialize()),
             Err(RecoveryError::InvalidValue("sector backup"))
         );
+    }
+
+    #[test]
+    fn persisted_phase_only_moves_forward() {
+        let path = std::env::temp_dir().join(format!(
+            "fatresize-phase-{}-{}.record",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, record().serialize()).unwrap();
+
+        persist_phase(&path, RecoveryPhase::DataMoving).unwrap();
+        assert_eq!(
+            RecoveryRecord::deserialize(&std::fs::read(&path).unwrap())
+                .unwrap()
+                .phase,
+            RecoveryPhase::DataMoving
+        );
+        assert!(persist_phase(&path, RecoveryPhase::Planned).is_err());
+        assert!(persist_phase(&path, RecoveryPhase::DataMoving).is_err());
+        persist_phase(&path, RecoveryPhase::MetadataUpdating).unwrap();
+        persist_phase(&path, RecoveryPhase::Complete).unwrap();
+        assert!(persist_phase(&path, RecoveryPhase::MetadataUpdating).is_err());
+
+        std::fs::remove_file(path).unwrap();
     }
 }

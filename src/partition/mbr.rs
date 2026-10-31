@@ -61,6 +61,9 @@ impl Mbr {
             if partition_type != 0 && sectors == 0 {
                 return Err(invalid_data("non-empty MBR partition has zero length"));
             }
+            if partition_type != 0 && first_lba == 0 {
+                return Err(invalid_data("non-empty MBR partition starts at LBA zero"));
+            }
             if sectors != 0 && first_lba.checked_add(sectors - 1).is_none() {
                 return Err(invalid_data("MBR partition range overflows"));
             }
@@ -184,7 +187,7 @@ fn validate_partition(partition: MbrPartition) -> io::Result<()> {
         }
         return Ok(());
     }
-    if partition.partition_type == 0 || partition.sectors == 0 {
+    if partition.partition_type == 0 || partition.sectors == 0 || partition.first_lba == 0 {
         return Err(invalid_data("inconsistent MBR partition"));
     }
     partition
@@ -280,6 +283,9 @@ mod tests {
         assert!(Mbr::from_bytes(bytes).is_err());
         let mut bytes = valid_mbr();
         bytes[454..458].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Mbr::from_bytes(bytes).is_err());
+        let mut bytes = valid_mbr();
+        bytes[454..458].copy_from_slice(&0_u32.to_le_bytes());
         assert!(Mbr::from_bytes(bytes).is_err());
     }
 

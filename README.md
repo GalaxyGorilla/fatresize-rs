@@ -133,7 +133,8 @@ or stacked-device discovery, and filesystem repair are not supported.
   volume, and rejects bad/reserved clusters, cross-links, malformed chains,
   mismatched FAT mirrors, and partition-boundary crossings.
 - A checksummed recovery record is written to a temporary file, synced,
-  atomically renamed, and its parent directory synced before volume writes.
+  atomically published without replacement, and its parent directory synced
+  before volume writes.
 - Growth expands the container before filesystem writes. Shrink commits the
   smaller container only after rereading and validating the resized filesystem.
 - Metadata stages are synced; GPT updates write and sync the backup copy before

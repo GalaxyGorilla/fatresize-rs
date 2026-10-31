@@ -122,6 +122,7 @@ pub enum Precondition {
     SourceIdentity {
         volume_id: u32,
         boot_checksum: u32,
+        identity_checksum: u32,
         total_bytes: u64,
     },
     CleanFilesystem,
@@ -196,6 +197,7 @@ pub fn plan(device: &impl ReadAt, requested_bytes: u64) -> Result<ResizePlan, Re
         Precondition::SourceIdentity {
             volume_id: bpb.volume_id,
             boot_checksum: recovery.source.boot_checksum,
+            identity_checksum: recovery.source.identity_checksum,
             total_bytes: metadata.report.layout.total_bytes,
         },
         Precondition::CleanFilesystem,
@@ -505,6 +507,7 @@ fn build_recovery(
             volume_id: bpb.volume_id,
             volume_bytes: layout.total_bytes,
             boot_checksum: recovery::checksum(&boot),
+            identity_checksum: recovery::boot_identity_checksum(&boot, bpb.fat_type)?,
         },
         geometry: SourceGeometry {
             fat_type: bpb.fat_type,

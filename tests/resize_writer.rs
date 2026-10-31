@@ -584,3 +584,59 @@ fn every_filesystem_write_failure_is_recoverable() {
         std::fs::remove_file(recovery).unwrap();
     }
 }
+
+#[test]
+fn stale_plan_is_refused_before_recovery_or_writes() {
+    let volume = FailingMemory {
+        bytes: RefCell::new(fat16_image()),
+        writes: Cell::new(0),
+        fail_at: None,
+    };
+    let plan = fatresize::resize::plan(&volume, 5_000 * 512).unwrap();
+    volume.bytes.borrow_mut()[39..43].copy_from_slice(&0xdead_beef_u32.to_le_bytes());
+    let changed = volume.bytes.borrow().clone();
+    let recovery = temp("stale-plan.recovery");
+
+    let error = fatresize::resize::writer::execute(&volume, &plan, &recovery, |_| {}).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("source filesystem changed after planning")
+    );
+    assert!(!recovery.exists());
+    assert_eq!(*volume.bytes.borrow(), changed);
+    assert_eq!(volume.writes.get(), 0);
+}
+
+#[test]
+fn restore_rejects_different_volume_with_same_volume_id() {
+    let source = FailingMemory {
+        bytes: RefCell::new(fat16_image()),
+        writes: Cell::new(0),
+        fail_at: None,
+    };
+    let plan = fatresize::resize::plan(&source, 5_000 * 512).unwrap();
+    let recovery = temp("wrong-volume.recovery");
+    fatresize::resize::writer::prepare(&source, &plan, &recovery).unwrap();
+
+    let mut other_bytes = fat16_image();
+    // Keep the volume ID identical but change another stable identity field.
+    other_bytes[43..54].copy_from_slice(b"OTHERDISK  ");
+    let before = other_bytes.clone();
+    let other = FailingMemory {
+        bytes: RefCell::new(other_bytes),
+        writes: Cell::new(0),
+        fail_at: None,
+    };
+
+    let error = fatresize::resize::writer::restore(&other, &recovery, false).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("selected volume does not match recovery source")
+    );
+    assert_eq!(*other.bytes.borrow(), before);
+    assert_eq!(other.writes.get(), 0);
+
+    std::fs::remove_file(recovery).unwrap();
+}

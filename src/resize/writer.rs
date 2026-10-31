@@ -7,7 +7,10 @@ use std::path::Path;
 use crate::device::{ReadAt, WriteAt};
 use crate::fat::{self, FatType};
 
-use super::{FatValue, MoveStep, RecoveryPhase, RecoveryRecord, ResizePlan, recovery::checksum};
+use super::{
+    FatValue, MoveStep, RecoveryPhase, RecoveryRecord, ResizePlan,
+    recovery::{boot_identity_checksum, checksum},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteStage {
@@ -28,6 +31,7 @@ pub fn execute(
     mut progress: impl FnMut(WriteStage),
 ) -> io::Result<()> {
     validate_plan_bounds(volume, plan)?;
+    validate_source_precondition(volume, plan)?;
     // Capture the active source FAT before any data move can overlap old
     // metadata sectors.
     let target_fat = build_fat(volume, plan)?;
@@ -42,6 +46,7 @@ pub fn execute(
         prepare(volume, plan, recovery_path)?;
         load_record(recovery_path)?;
     }
+    validate_source_precondition(volume, plan)?;
     progress(WriteStage::Recovery);
 
     super::recovery::persist_phase(recovery_path, RecoveryPhase::DataMoving)?;
@@ -249,12 +254,17 @@ pub fn restore(
         .ok_or_else(|| invalid_data("recovery record has no boot sector"))?;
     if checksum(&boot.bytes) != record.source.boot_checksum
         || volume_id(&boot.bytes, record.geometry.fat_type)? != record.source.volume_id
+        || boot_identity_checksum(&boot.bytes, record.geometry.fat_type)?
+            != record.source.identity_checksum
     {
         return Err(invalid_data("recovery source identity is inconsistent"));
     }
     let mut current = vec![0; usize::from(record.geometry.bytes_per_sector)];
     volume.read_at(0, &mut current)?;
-    if volume_id(&current, record.geometry.fat_type)? != record.source.volume_id {
+    if volume_id(&current, record.geometry.fat_type)? != record.source.volume_id
+        || boot_identity_checksum(&current, record.geometry.fat_type)?
+            != record.source.identity_checksum
+    {
         return Err(invalid_data(
             "selected volume does not match recovery source",
         ));
@@ -311,6 +321,35 @@ fn validate_plan_bounds(volume: &impl ReadAt, plan: &ResizePlan) -> io::Result<(
     }
     for patch in &plan.directory_patches {
         checked_range(volume.len(), patch.entry_offset, 32)?;
+    }
+    Ok(())
+}
+
+fn validate_source_precondition(volume: &impl ReadAt, plan: &ResizePlan) -> io::Result<()> {
+    let metadata = fat::read_metadata(volume)?;
+    let report = &metadata.report;
+    if !report.issues.is_empty() {
+        return Err(invalid_data("source filesystem changed after planning"));
+    }
+    let source = &plan.recovery.source;
+    let geometry = &plan.recovery.geometry;
+    let mut boot = vec![0; usize::from(report.bpb.bytes_per_sector)];
+    volume.read_at(0, &mut boot)?;
+    if report.bpb.volume_id != source.volume_id
+        || report.layout.total_bytes != source.volume_bytes
+        || report.bpb.fat_type != geometry.fat_type
+        || report.bpb.bytes_per_sector != geometry.bytes_per_sector
+        || report.bpb.sectors_per_cluster != geometry.sectors_per_cluster
+        || report.bpb.reserved_sectors != geometry.reserved_sectors
+        || report.bpb.fat_count != geometry.fat_count
+        || report.bpb.sectors_per_fat != geometry.sectors_per_fat
+        || report.layout.first_data_sector != geometry.first_data_sector
+        || report.layout.cluster_count != geometry.cluster_count
+        || report.bpb.total_sectors != geometry.total_sectors
+        || checksum(&boot) != source.boot_checksum
+        || boot_identity_checksum(&boot, geometry.fat_type)? != source.identity_checksum
+    {
+        return Err(invalid_data("source filesystem changed after planning"));
     }
     Ok(())
 }
@@ -564,11 +603,36 @@ fn persist_new_record(path: &Path, record: &RecoveryRecord) -> io::Result<()> {
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(&record.serialize())?;
-    file.sync_all()?;
-    drop(file);
-    File::open(parent)?.sync_all()
+    if path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "recovery path already exists; choose a new --backup path",
+        ));
+    }
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = parent.join(format!(".{name}.tmp-{}-{nonce}", std::process::id()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&record.serialize())?;
+        file.sync_all()?;
+        drop(file);
+        // Linking publishes the fully synced record atomically and refuses to
+        // replace a path created concurrently.
+        std::fs::hard_link(&temporary, path)?;
+        std::fs::remove_file(&temporary)?;
+        File::open(parent)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn volume_id(boot: &[u8], fat_type: FatType) -> io::Result<u32> {
