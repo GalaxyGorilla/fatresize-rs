@@ -6,6 +6,9 @@ rust-version = "1.88"
 description = "A clean-room Rust implementation of FAT filesystem resizing"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/GalaxyGorilla/fatresize-rs"
+keywords = ["fat", "fat32", "filesystem", "resize", "cli"]
+categories = ["command-line-utilities", "filesystem"]
 
 [lib]
 name = "fatresize"
