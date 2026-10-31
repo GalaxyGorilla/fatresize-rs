@@ -174,6 +174,7 @@ performance measurements are in [docs/performance.md](docs/performance.md).
 
 ## Documentation
 
+- [Test strategy and hardware boundary](TESTING.md)
 - [Compatibility and deliberate limits](docs/compatibility.md)
 - [Recovery and format behavior](docs/compatibility.md#recovery-format)
 - [Performance methodology](docs/performance.md)
