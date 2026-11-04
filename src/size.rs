@@ -11,6 +11,10 @@ impl Size {
     /// points resolve it against the selected container's safe capacity.
     pub const MAX: u64 = u64::MAX;
 
+    /// Sentinel used by the `min` token. Operational entry points resolve it
+    /// against the smallest geometry that can hold every allocated cluster.
+    pub const MIN: u64 = u64::MAX - 1;
+
     pub const fn from_bytes(bytes: u64) -> Self {
         Self(bytes)
     }
@@ -22,12 +26,18 @@ impl Size {
     pub const fn is_max(self) -> bool {
         self.0 == Self::MAX
     }
+
+    pub const fn is_min(self) -> bool {
+        self.0 == Self::MIN
+    }
 }
 
 impl fmt::Display for Size {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_max() {
             f.write_str("max")
+        } else if self.is_min() {
+            f.write_str("min")
         } else {
             write!(f, "{}", self.0)
         }
@@ -40,6 +50,9 @@ impl FromStr for Size {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         if input.eq_ignore_ascii_case("max") {
             return Ok(Self(Self::MAX));
+        }
+        if input.eq_ignore_ascii_case("min") {
+            return Ok(Self(Self::MIN));
         }
         if input.is_empty() {
             return Err(SizeParseError::Empty);
@@ -133,6 +146,9 @@ mod tests {
         assert_eq!("max".parse::<Size>().unwrap().bytes(), Size::MAX);
         assert_eq!("MAX".parse::<Size>().unwrap().bytes(), Size::MAX);
         assert_eq!("max".parse::<Size>().unwrap().to_string(), "max");
+        assert_eq!("min".parse::<Size>().unwrap().bytes(), Size::MIN);
+        assert_eq!("MiN".parse::<Size>().unwrap().bytes(), Size::MIN);
+        assert_eq!("min".parse::<Size>().unwrap().to_string(), "min");
     }
 
     #[test]

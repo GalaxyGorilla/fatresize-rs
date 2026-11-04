@@ -8,7 +8,7 @@ tool's implementation.
 
 | Option | Short form | Behavior |
 | --- | --- | --- |
-| `--size SIZE` | `-s SIZE` | Grows or shrinks to a numeric size, or to safe container capacity with `max`. |
+| `--size SIZE` | `-s SIZE` | Grows or shrinks to a numeric size. `min` compacts to the smallest geometry that holds all data; `max` selects safe container capacity. |
 | `--info` | `-i` | Selects filesystem information output. |
 | `--force-yes` | `-f` | Records non-interactive confirmation. |
 | `--partition NUM` | `-n NUM` | Accepts a positive `u32` partition number. |
@@ -37,7 +37,9 @@ valid UTF-8.
 
 An unsuffixed integer is a byte count. The case-insensitive token `max` resolves
 to the selected image length or the available partition space up to the next
-partition/GPT metadata boundary. Suffixes `B`, `K`, `M`, `G`, `T`, and
+partition/GPT metadata boundary. The token `min` resolves to the smallest
+geometry that can hold every allocated cluster after relocation while keeping
+the FAT type. Suffixes `B`, `K`, `M`, `G`, `T`, and
 `P`, plus `KB`/`KiB` forms, are case-insensitive and use powers of 1024.
 Decimal fractions are accepted only when they resolve to a whole number of
 bytes. Negative values, unknown suffixes, sub-byte values, and `u64` overflow

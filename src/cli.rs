@@ -10,7 +10,7 @@ fatresize - inspect and resize FAT filesystems
 Usage: fatresize [OPTIONS] DEVICE
 
 Compatibility options:
-  -s, --size SIZE        Resize to SIZE (bytes, K/M/G/T/P binary unit, or max)
+  -s, --size SIZE        Resize to SIZE (bytes, K/M/G/T/P binary unit, min, or max)
   -i, --info             Display filesystem information
   -f, --force-yes        Assume yes for confirmation prompts
   -n, --partition NUM    Select a partition within DEVICE

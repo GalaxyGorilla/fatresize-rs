@@ -245,6 +245,48 @@ pub fn plan(device: &impl ReadAt, requested_bytes: u64) -> Result<ResizePlan, Re
     })
 }
 
+/// Returns the smallest target byte length that can hold every allocated
+/// cluster after relocation while preserving the source FAT type.
+///
+/// This is the value resolved by `--size min`. It requires a fully consistent
+/// source, just like [`plan`].
+pub fn minimum_bytes(device: &impl ReadAt) -> Result<u64, ResizeError> {
+    let metadata = fat::read_metadata(device)?;
+    if !metadata.report.issues.is_empty() {
+        return Err(ResizeError::InconsistentSource(
+            metadata.report.issues.clone(),
+        ));
+    }
+    let bpb = &metadata.report.bpb;
+    let allocated = metadata.report.allocated_clusters;
+    let bytes_per_sector = u64::from(bpb.bytes_per_sector);
+    let sufficient = |sectors: u32| {
+        sectors != 0
+            && calculate_geometry(bpb, u64::from(sectors) * bytes_per_sector)
+                .is_ok_and(|target| target.cluster_count >= allocated)
+    };
+    let mut low = 1_u32;
+    let mut high = bpb.total_sectors;
+    if !sufficient(high) {
+        return Err(ResizeError::InsufficientSpace {
+            allocated,
+            available: metadata.report.layout.cluster_count,
+        });
+    }
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if sufficient(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    if !sufficient(low) {
+        return Err(ResizeError::TargetTooSmall);
+    }
+    Ok(u64::from(low) * bytes_per_sector)
+}
+
 fn allocate_clusters(
     metadata: &Metadata,
     target_count: u32,
@@ -491,6 +533,11 @@ fn build_recovery(
         sector_numbers.insert(patch.entry_offset / bytes_per_sector);
         sector_numbers.insert(patch.source_entry_offset / bytes_per_sector);
     }
+    // Growth can place target FAT copies, root sectors, or patched directory
+    // entries beyond the source volume. Restore truncates the container back
+    // to the source size, so those sectors never need to be backed up.
+    let source_sectors = layout.total_bytes / bytes_per_sector;
+    sector_numbers.retain(|&sector| sector < source_sectors);
     let mut boot = vec![0; usize::from(bpb.bytes_per_sector)];
     device.read_at(0, &mut boot)?;
     let mut sectors = Vec::with_capacity(sector_numbers.len());

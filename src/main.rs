@@ -79,6 +79,8 @@ fn run() -> Result<bool, Error> {
         let recovery = recovery_path(path, &config)?;
         let target = if size.is_max() {
             "the maximum safe size".to_owned()
+        } else if size.is_min() {
+            "the minimum safe size".to_owned()
         } else {
             format!("{} bytes", size.bytes())
         };

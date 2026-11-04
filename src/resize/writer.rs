@@ -128,14 +128,25 @@ fn add_overwritten_data_to_recovery(
         if !offset.is_multiple_of(sector_bytes) || !length.is_multiple_of(sector_bytes) {
             return Err(invalid_data("data move is not sector aligned"));
         }
-        backup_range(
-            volume,
-            offset / sector_bytes,
-            (offset + length) / sector_bytes,
-            sector_bytes,
-            &mut sectors,
-            record,
-        )?;
+        // A grown container can move data into space beyond the source volume.
+        // Restore shrinks the container back to the source size, so only the
+        // portion of an overwritten range inside the source needs a backup.
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| invalid_data("data move range overflows"))?;
+        let source_sectors = record.source.volume_bytes / sector_bytes;
+        let start_sector = offset / sector_bytes;
+        let end_sector = (end / sector_bytes).min(source_sectors);
+        if start_sector < end_sector {
+            backup_range(
+                volume,
+                start_sector,
+                end_sector,
+                sector_bytes,
+                &mut sectors,
+                record,
+            )?;
+        }
     }
     if plan.target.fat_type == FatType::Fat32 {
         let fsinfo = bpb_u16(volume, record.geometry.bytes_per_sector, 48)?;

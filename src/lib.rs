@@ -73,6 +73,11 @@ pub fn resize_path(
             progress,
         );
     }
+    let requested_bytes = if requested_bytes == Size::MIN {
+        resize::minimum_bytes(&device)?
+    } else {
+        requested_bytes
+    };
     let requested_bytes = if requested_bytes == Size::MAX {
         device.len()
     } else {
@@ -221,6 +226,15 @@ fn resize_partition_path(
             .and_then(|blocks| blocks.checked_add(1))
             .and_then(|blocks| blocks.checked_mul(block))
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "GPT size overflows"))?;
+        let requested_bytes = if requested_bytes == Size::MIN {
+            let current_view = Subrange::new(device, entry.first_lba * block, current)?;
+            resize::minimum_bytes(&current_view)?
+                .div_ceil(block)
+                .checked_mul(block)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "GPT size overflows"))?
+        } else {
+            requested_bytes
+        };
         let capacity_end = gpt
             .partitions
             .iter()
@@ -284,6 +298,16 @@ fn resize_partition_path(
         .filter(|entry| !entry.is_empty())
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "MBR partition does not exist"))?;
     let current = u64::from(entry.sectors) * SECTOR_SIZE;
+    let requested_bytes = if requested_bytes == Size::MIN {
+        let offset = u64::from(entry.first_lba) * SECTOR_SIZE;
+        let current_view = Subrange::new(device, offset, current)?;
+        resize::minimum_bytes(&current_view)?
+            .div_ceil(SECTOR_SIZE)
+            .checked_mul(SECTOR_SIZE)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "MBR size overflows"))?
+    } else {
+        requested_bytes
+    };
     let capacity_end = mbr
         .partitions
         .iter()
@@ -421,6 +445,15 @@ pub fn plan_path(
             let current = (entry.last_lba - entry.first_lba + 1)
                 .checked_mul(block)
                 .ok_or(resize::ResizeError::GeometryOverflow)?;
+            let requested_bytes = if requested_bytes == Size::MIN {
+                let current_view = Subrange::new(&device, entry.first_lba * block, current)?;
+                resize::minimum_bytes(&current_view)?
+                    .div_ceil(block)
+                    .checked_mul(block)
+                    .ok_or(resize::ResizeError::GeometryOverflow)?
+            } else {
+                requested_bytes
+            };
             let capacity_end = gpt
                 .partitions
                 .iter()
@@ -460,6 +493,16 @@ pub fn plan_path(
                 io::Error::new(io::ErrorKind::NotFound, "MBR partition does not exist")
             })?;
         let current = u64::from(entry.sectors) * SECTOR_SIZE;
+        let requested_bytes = if requested_bytes == Size::MIN {
+            let offset = u64::from(entry.first_lba) * SECTOR_SIZE;
+            let current_view = Subrange::new(&device, offset, current)?;
+            resize::minimum_bytes(&current_view)?
+                .div_ceil(SECTOR_SIZE)
+                .checked_mul(SECTOR_SIZE)
+                .ok_or(resize::ResizeError::GeometryOverflow)?
+        } else {
+            requested_bytes
+        };
         let capacity_end = mbr
             .partitions
             .iter()
@@ -490,6 +533,11 @@ pub fn plan_path(
         )?;
         return resize::plan(&view, target);
     }
+    let requested_bytes = if requested_bytes == Size::MIN {
+        resize::minimum_bytes(&device)?
+    } else {
+        requested_bytes
+    };
     let target = if requested_bytes == Size::MAX {
         device.len()
     } else {

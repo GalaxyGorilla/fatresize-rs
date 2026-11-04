@@ -51,6 +51,9 @@ fatresize --check DEVICE
 # Preview an exact resize without writing
 fatresize --dry-run --size 8GiB DEVICE
 
+# Compact to the smallest safe size, relocating fragmented data
+fatresize --dry-run --size min DEVICE
+
 # Resize partition 1 and place recovery data on separate storage
 fatresize --force-yes --size 8GiB --partition 1 \
   --backup /safe/disk.fatrsz /dev/sdX
@@ -75,10 +78,12 @@ Sizes without a suffix are bytes. `B`, `K`, `M`, `G`, `T`, and `P` are
 accepted case-insensitively; `KB` and `KiB` forms (and their larger
 counterparts) are also accepted. All units use powers of 1024. Exact decimal
 fractions such as `1.5GiB` are supported, but sub-byte results are rejected.
-`max` selects the safe capacity of the image or selected partition.
-Explicit target sizes are exact: the resulting BPB and image or partition
-length equal the requested byte count. Targets that are not aligned to both the
-FAT sector and container block size are rejected instead of rounded.
+`max` selects the safe capacity of the image or selected partition; `min`
+selects the smallest geometry that can hold every allocated cluster after
+relocation. Explicit target sizes are exact: the resulting BPB and image or
+partition length equal the requested byte count. Targets that are not aligned
+to both the FAT sector and container block size are rejected instead of
+rounded.
 
 ## Before resizing real storage
 
