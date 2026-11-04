@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 fn main() {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(3..=5).contains(&arguments.len()) {
+    if !(3..=6).contains(&arguments.len()) {
         eprintln!(
-            "usage: compare RUST_BINARY ORIGINAL_BINARY FAT_IMAGE [ITERATIONS] [RESIZE_SIZE]"
+            "usage: compare RUST_BINARY ORIGINAL_BINARY IMAGE [ITERATIONS] [RESIZE_SIZE] [PARTITION]"
         );
         std::process::exit(2);
     }
@@ -24,20 +24,23 @@ fn main() {
     assert!(iterations > 0, "ITERATIONS must be positive");
 
     println!("iterations: {iterations}");
+    let partition = arguments.get(5).map(String::as_str);
+    if let Some(partition) = partition {
+        println!("partition: {partition}");
+    }
     benchmark("help: Rust", &arguments[0], &["--help"], iterations);
     benchmark("help: original", &arguments[1], &["--help"], iterations);
-    benchmark(
-        "info: Rust",
-        &arguments[0],
-        &["--info", "--quiet", &arguments[2]],
-        iterations,
-    );
-    benchmark(
-        "info: original",
-        &arguments[1],
-        &["-i", &arguments[2]],
-        iterations,
-    );
+
+    let mut rust_info = vec!["--info", "--quiet"];
+    let mut original_info = vec!["-i"];
+    if let Some(partition) = partition {
+        rust_info.extend(["--partition", partition]);
+        original_info.extend(["-n", partition]);
+    }
+    rust_info.push(&arguments[2]);
+    original_info.push(&arguments[2]);
+    benchmark("info: Rust", &arguments[0], &rust_info, iterations);
+    benchmark("info: original", &arguments[1], &original_info, iterations);
     benchmark(
         "check: Rust",
         &arguments[0],
@@ -53,6 +56,7 @@ fn main() {
             size,
             resize_iterations,
             false,
+            partition,
         );
         benchmark_resize(
             "resize: original",
@@ -61,6 +65,7 @@ fn main() {
             size,
             resize_iterations,
             true,
+            partition,
         );
     }
 }
@@ -115,6 +120,7 @@ fn benchmark_resize(
     size: &str,
     iterations: usize,
     original: bool,
+    partition: Option<&str>,
 ) {
     let mut samples = Vec::with_capacity(iterations);
     let mut failures = 0;
@@ -125,19 +131,22 @@ fn benchmark_resize(
         std::fs::copy(baseline, &image).expect("failed to copy benchmark image");
         let image_text = image.to_string_lossy();
         let recovery_text = recovery.to_string_lossy();
-        let arguments = if original {
-            vec!["-f", "-q", "-s", size, image_text.as_ref()]
+        let mut arguments = if original {
+            vec!["-f", "-q", "-s", size]
         } else {
-            vec![
-                "--force-yes",
-                "--quiet",
-                "--size",
-                size,
-                "--backup",
-                recovery_text.as_ref(),
-                image_text.as_ref(),
-            ]
+            vec!["--force-yes", "--quiet", "--size", size]
         };
+        if let Some(partition) = partition {
+            arguments.extend(if original {
+                ["-n", partition]
+            } else {
+                ["--partition", partition]
+            });
+        }
+        if !original {
+            arguments.extend(["--backup", recovery_text.as_ref()]);
+        }
+        arguments.push(image_text.as_ref());
         match run(program, &arguments) {
             Ok(duration) => samples.push(duration),
             Err(()) => failures += 1,
