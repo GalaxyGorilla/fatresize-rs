@@ -97,11 +97,13 @@ rounded.
 
 ## Performance
 
-These are machine-specific median wall-clock results from one benchmark run
+These are machine-specific median wall-clock results from benchmark runs
 using release builds on an Apple M1 Pro host inside a Linux arm64 container.
 They are not portable performance guarantees. Full methodology, failure
 details, and fixture commands are in
 [docs/performance.md](docs/performance.md).
+
+### Read-only operations
 
 | Operation | Rust | Original fatresize |
 | --- | ---: | ---: |
@@ -109,29 +111,44 @@ details, and fixture commands are in
 | Info: FAT16 64 MiB | 0.45 ms | 1.55 ms |
 | Info: fragmented FAT32 256 MiB | 3.40 ms | 8.02 ms |
 | Check: fragmented FAT32 256 MiB | 73 ms | no equivalent mode |
+
+### Partition resizing where both tools complete
+
+| Operation | Rust | Original fatresize |
+| --- | ---: | ---: |
+| FAT16 empty, 64 → 48 MiB, MBR | 217 ms | 10.6 ms |
+| FAT16 one low file, 64 → 48 MiB, MBR | 230 ms | 12.2 ms |
+| FAT16 fragmented (35 files), 64 → 48 MiB, MBR | 727 ms | 58 ms |
+| FAT16 fragmented (35 files), 64 → 40 MiB, MBR | 819 ms | 67 ms |
+| FAT16 fragmented (35 files), 64 → 48 MiB, GPT | 726 ms | 56 ms |
+| FAT16 empty grow, 64 → 80 MiB, MBR | 11 ms | 8.4 ms |
+
+The original is faster on these supported operations because it writes no
+durable recovery record and performs no post-write verification. It also
+rounds to its own geometry: the 48, 40, and 80 MiB requests became 98,343,
+81,937, and 163,773 sectors, while Rust targets exactly 98,304, 81,920, and
+163,840 sectors. Fragmented FAT16 content and `fsck.fat` were verified after
+the original's shrink.
+
+### Scenarios the original could not complete
+
+| Operation | Rust | Original fatresize |
+| --- | ---: | ---: |
 | Shrink FAT16 64 → 48 MiB, raw volume | 220 ms | aborts (SIGABRT) |
-| Shrink FAT16 64 → 48 MiB, MBR partition | 217 ms | 10 ms |
-| Shrink empty FAT32 256 → 224 MiB, MBR partition | 484 ms | exits 1 |
-| Shrink fragmented FAT32 256 → 224 MiB, MBR partition | 19.8 s | exits 1 |
-| Shrink fragmented FAT32 256 → 224 MiB, GPT partition | 19.2 s | exits 1 |
+| Shrink empty FAT32 256 → 224 MiB, raw volume | 485 ms | aborts (SIGABRT) |
+| Shrink empty FAT32 256 → 224 MiB, MBR | 484 ms | exits 1 |
+| Shrink fragmented FAT32 256 → 224 MiB, MBR | 19.8 s | exits 1 |
+| Shrink fragmented FAT32 256 → 224 MiB, GPT | 19.2 s | exits 1 |
 | Compact fragmented FAT32 to `min` (208.8 MB) | 19.5 s | no `min` mode |
 
-The fragmented fixture contains 84 files, 14 fragmented files, and 104 physical
-extents. `min` packed all **401,474 allocated clusters into 401,474 available
-clusters**, kept every file byte-identical, passed `fsck.fat`, and updated both
-MBR and GPT partition entries.
+The fragmented FAT32 fixture contains 84 files, 14 fragmented files, and 104
+physical extents. `min` packed all **401,474 allocated clusters into 401,474
+available clusters**, kept every file byte-identical, passed `fsck.fat`, and
+updated both MBR and GPT partition entries.
 
-Two results deserve context:
-
-- The original tool is faster for the simple empty FAT16 MBR shrink because it
-  writes no durable recovery record and performs no post-write verification.
-  It also rounded the target to 98,343 sectors instead of the exact 98,304.
-- The original aborted every raw-volume shrink and failed every FAT32 partition
-  shrink tested here, so no fragmented-shrink speedup is claimed. The Rust path
-  completes and verifies the operation. The ~19.5 s fragmented shrink is
-  dominated by moving roughly 206 MB (196 MiB) of allocated data (resizing the FAT
-  shifts the start of the data area) plus writing a large recovery record, not
-  by the move scheduler.
+The ~19.5 s fragmented FAT32 shrink is I/O-bound: resizing the FAT shifts the
+start of the data area, so roughly 401,000 clusters (206 MB / 196 MiB) move,
+and the plan writes a large recovery record. It is not scheduler-bound.
 
 ## Supported matrix
 
